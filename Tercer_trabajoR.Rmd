@@ -1,0 +1,826 @@
+---
+title: "Trabajo #3 de Técnicas de Aprendizaje Estadístico (TAE)"
+author: "Esteban Moreno Rodríguez-1152459914"
+date: "31/1/2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(printr)
+```
+
+
+# Clasificación de imágenes
+
+En este trabajo se abordará el problema de clasificar imágenes utilizando técnicas de aprendizaje estadístico.
+
+
+# Planteamiento del problema
+
+El objetivo principal de este trabajo es crear un modelo que clasifique las imágenes de personas que usan o no usan gafas de sol.
+
+Para esto se tiene una base de imágenes con personas que usan o no gafas de sol, con diferentes posturas de la cabeza; Izquierda, derecha y arriba , diferentes gestos faciales; Enojado, feliz,neutro y triste además de diferente tamaño de imagen como: Reducida a la mitad y reducida a un cuarto. La base de datos se llama **CMU Face Images Data Set**.
+
+Para coinstruir una base de imágenes que sirva como base de entrenamiento para crear un modelo que intentará clasificar las imagenes de la base de datos **CMU Face Images Data Set** se debe tener en cuenta que variables son influyentes o pueden ayudar clasificar una imagen correctamente. Éstas variables serán tenidas en cuenta a la hora de seleccionar las imágenes, las candidatas son:
+
+* Gesto facial
+
+* Postura
+
+* Tamaño de la foto
+
+## Notas. 
+
+- Se tendrán aproximadamente el mismo número de imágenes de personas que utilizan o no gafas de sol.
+
+- Todas las imágenes de las bases de datos **Entrenamiento (Train)** y **CMU Face Images Data Set**, están en escala de grises.
+
+
+## Selección de variables.
+
+
+Para seleccionar las variables que puedan ser influyentes a la hora de escoger las imágenes del conjunto de datos **Entrenamiento (Train)** veremos que variables pueden ayudar a clasificar las imágenes.
+
+Para esto se utilizará un modelo de regresión logistica con variables explicativas pertenecientes a las componentes principales de las imágenes de la base de imágenes **CMU Face Images Data Set**, entonces se tendrá una idea de cuales variables aportan bena información y cuales no.
+
+El item para saber si las variables ayudan o no a clasificar las imágenes es el error de medición para variables categóricas.
+
+Se utilizan 500 imágenes para crear la base de datos de enntrenamiento y las otras 1348 imágenes para evaluar que tan bien clasifica el modelo.
+
+```{r message=FALSE, include=TRUE, echo=FALSE}
+library(imager)
+
+datos_CMU <- list.files(pattern= "*.bmp")
+
+m <- length(datos_CMU)
+
+x <- c(rep(0,m)) # Postura
+x <- ifelse(grepl("left", datos_CMU), yes = "left", no = datos_CMU)
+x <- ifelse(grepl("right", datos_CMU), yes = "right", no = x)
+x <- ifelse(grepl("straight", datos_CMU), yes = "straight", no = x)
+x <- ifelse(grepl("up", datos_CMU), yes = "up", no = x)
+
+y <- c(rep("1",m)) #Gafas
+y <- ifelse(grepl("open", datos_CMU), yes = "0", no = y)
+
+k <- c(rep("normal",m)) # Tamaño
+k <- ifelse(grepl("2|4", datos_CMU), yes = "reducido", no = k)
+
+w <- rep("neutral",m) # Gesto facial
+w <- ifelse(grepl("happy", datos_CMU), yes = "happy", no = w)
+w <- ifelse(grepl("sad", datos_CMU), yes = "sad", no = w)
+w <- ifelse(grepl("angry", datos_CMU), yes = "angry", no = w)
+
+W <- data.frame(nombre = datos_CMU , postura = x , gafas_sol = y, tamano = k , gesto_facial = w)
+
+head(W)
+dim(W)
+
+set.seed(1152459914)
+alea <- sample(x = 1:m , size = 500 , replace = F)
+datos_train_cmu <- W[alea,]
+datos_test_cmu <- W[-alea,]
+
+```
+
+```{r, echo=TRUE, include=FALSE}
+## Función para leer todas las imágenes de una base de datos ##
+
+leer_y_trs_img<-function(img_name,path=NULL,x_l=120,y_l=128){
+  require(imager)
+  img_nombre<-paste0(path,img_name) # completa el nombre de la imagen con la ruta
+  imagen<-load.image(img_nombre) # carga la imagen
+  img_gris<-grayscale(imagen) # convierte la imagen a escala de grises
+  img_escalada<-resize(img_gris,x_l,y_l) # reescala la imagen
+  return(img_escalada)
+}
+```
+
+```{r , include=TRUE, echo=FALSE}
+lista_imagenes_cmu = lapply( datos_CMU[alea] , leer_y_trs_img,x_l = 128,y_l = 120) 
+``` 
+
+## Conjunto de datos de entrenamiento de CMU Face Images Data Set
+
+```{r, include=TRUE , echo=FALSE}
+
+head(datos_train_cmu <- W[alea,])
+dim(datos_train_cmu)
+
+```
+
+## Componentes principales
+
+
+```{r  , include=TRUE , echo=FALSE}
+imagenes_vectorizadas_cmu <-lapply(lista_imagenes_cmu, as.numeric)
+#length(imagenes_vectorizadas_cmu[[1]]) # longitud del vector que representa la primera imagen
+#length(imagenes_vectorizadas_cmu) # cantidad de imágenes
+```
+
+```{r, include=TRUE , echo=FALSE}
+matriz_imagenes_cmu = do.call('rbind', imagenes_vectorizadas_cmu)
+dim(matriz_imagenes_cmu) # dimensión de la matriz resultante
+head(data.frame(matriz_imagenes_cmu)[,1:6])
+```
+
+Son 500 imágenes con  15360 variables cada una.2
+
+
+```{r, include=TRUE, echo=FALSE}
+imagen_sd_vec_cmu<-apply(matriz_imagenes_cmu,2,sd)
+imagen_sd_cmu <-as.cimg(array(imagen_sd_vec_cmu,dim=c(128,120)))
+```
+
+
+## Máscara
+
+
+Se usa la función truehist de R para observar cual es el punto de corte entre los espacios de más variabilidad.
+
+```{r, echo=FALSE, include=TRUE}
+MASS::truehist(imagen_sd_cmu)
+```
+
+EL punto de corte es de **0.2**, ahora con este valor y la función *threshol()* se puede visualizar como será la máscara 
+
+
+```{r, echo=FALSE, include=TRUE}
+imagen_sd_tr_cmu<-threshold(imagen_sd_cmu,thr = 0.20)
+plot(imagen_sd_tr_cmu)
+```
+
+```{r,include=FALSE, echo=TRUE}
+mascara_cmu<-which(imagen_sd_tr_cmu==1)
+```
+
+
+```{r, include=TRUE, echo=FALSE}
+datos_con_mascara_cmu<-matriz_imagenes_cmu[,mascara_cmu]
+dim(datos_con_mascara_cmu)
+```
+Ahora tenemos 500 imágenes con 5340 variables .
+
+
+
+
+```{r,include=FALSE, echo=TRUE}
+datos_mascara_centrados_cmu<-scale(datos_con_mascara_cmu,center = TRUE,scale = TRUE)
+```
+
+
+## Número de componentes principales
+
+
+El número de componentes principales que serán tomadas en cuenta es la cantidad de variables que logren explicar cerca del 90% de la información.
+
+
+
+```{r , include=FALSE, echo=TRUE}
+modelo_pca_cmu<-prcomp(datos_mascara_centrados_cmu)
+x <- summary(modelo_pca_cmu)
+```
+
+
+```{r, include=TRUE, echo=FALSE}
+a <- 0
+for (i in c(1:length(x$importance))) {
+  b <- as.numeric(x$importance[i])
+  if (x$importance[3*i] < 1) {
+    a <- x$importance[3*i]
+  }
+  if (a > 0.90) {
+    break
+  }
+}
+
+print(c("El acomulado es :",a," Y el índice es :",i))
+
+```
+
+Esto índica que las primeras 36 componentes principales contienen 90% de la información, por lo tanto será el número de componentes principales adecuado para crear el modelo de regresión logistica que interará clasificar las imágenes.
+
+```{r, include=TRUE, echo=FALSE}
+eigen_modes_prin_cmu<-modelo_pca_cmu$rotation[,1:36] # poner 33
+dim(eigen_modes_prin_cmu)
+```
+
+
+
+## Regresión Logic usando componentes principales.
+
+Lo primero antes de crear un modelo de regresión Logic es crear una base de datos de entrenamiento y de prueba.
+
+
+### Base de datos de entrenamiento
+
+```{r, include=TRUE, echo=FALSE}
+
+datos_red_cmu_train <-datos_mascara_centrados_cmu%*%eigen_modes_prin_cmu
+#dim(datos_red_cmu_train)
+datos_train_cmu <- data.frame(datos_red_cmu_train)
+
+postura <- W[alea,]$postura
+tama <- W[alea,]$tamano
+gesto <- W[alea,]$gesto_facial
+y_datos_train_cmu <- W[alea,]$gafas_sol
+
+
+
+datos_train_cmu$postura <- postura
+datos_train_cmu$tamano <- tama
+datos_train_cmu$gesto_facial <- gesto
+datos_train_cmu$Y <- y_datos_train_cmu
+#dim(datos_train_cmu)
+
+head(datos_train_cmu[,35:40])
+
+```
+
+
+
+```{r, include=FALSE , echo=TRUE}
+lista_imagenes_cmu_2 = lapply( datos_CMU[-alea] , leer_y_trs_img,x_l = 128,y_l = 120) 
+#length(lista_imagenes_cmu_2)
+
+
+imagenes_vectorizadas_cmu2 <-lapply(lista_imagenes_cmu_2, as.numeric)
+#length(imagenes_vectorizadas_cmu2[[1]]) # longitud del vector que representa la primera imagen
+#length(imagenes_vectorizadas_cmu2) # cantidad de imágenes
+
+
+matriz_imagenes_cmu2 = do.call('rbind', imagenes_vectorizadas_cmu2)
+#dim(matriz_imagenes_cmu2) # dimensión de la matriz resultante
+
+imagen_sd_vec_cmu2<-apply(matriz_imagenes_cmu2,2,sd)
+imagen_sd_vec_cmu2<-as.cimg(array(imagen_sd_vec_cmu2,dim=c(128,120)))
+#plot(imagen_sd_vec_cmu2)
+
+
+imagen_sd_tr_cmu2<-threshold(imagen_sd_vec_cmu2,thr = 0.10)
+#plot(imagen_sd_tr_cmu2)
+
+
+datos_con_mascara_cmu2<-matriz_imagenes_cmu2[,mascara_cmu]
+#dim(datos_con_mascara_cmu2)
+
+datos_mascara_centrados_cmu2<-scale(datos_con_mascara_cmu2,center = TRUE,scale = TRUE)
+#dim(datos_mascara_centrados_cmu2)
+
+
+
+eigen_modes_prin_cmu<-modelo_pca_cmu$rotation[,1:36] # poner 33
+#dim(eigen_modes_prin_cmu)
+
+datos_red_cmu_train2 <-datos_mascara_centrados_cmu2%*%eigen_modes_prin_cmu
+#dim(datos_red_cmu_train2)
+
+```
+
+### Base de datos de prueba
+
+```{r, include=TRUE , echo=FALSE}
+
+#dim(datos_red_cmu_train2)
+datos_test_cmu <- data.frame(datos_red_cmu_train2)
+
+postura <- W[-alea,]$postura
+tama <- W[-alea,]$tamano
+gesto <- W[-alea,]$gesto_facial
+y_datos_test_cmu <- W[-alea,]$gafas_sol
+
+
+
+datos_test_cmu$postura <- postura
+datos_test_cmu$tamano <- tama
+datos_test_cmu$gesto_facial <- gesto
+datos_test_cmu$Y <- y_datos_test_cmu
+#dim(datos_test_cmu)
+
+head(datos_test_cmu[,35:40])
+
+```
+
+## Modelo logic con componentes principales
+
+
+```{r, include=TRUE , echo=FALSE}
+mod_fit_cmu <- glm(as.factor(Y) ~ . , data = datos_train_cmu[,c(1:36,40)] , family = "binomial")
+#mod_fit_cmu <- glm(as.factor(Y) ~ . , data = datos_train_cmu[,c(1:37,40)] , family = "binomial") # postura
+#mod_fit_cmu <- glm(as.factor(Y) ~ . , data = datos_train_cmu[,c(1:36,38,40)] , family = "binomial") # tama
+#mod_fit_cmu <- glm(as.factor(Y) ~ . , data = datos_train_cmu[,c(1:36,39,40)] , family = "binomial")
+#mod_fit_cmu <- glm(as.factor(Y) ~ . , data = datos_train_cmu[,c(1:36,37,38,39,40)] , family = "binomial")
+
+
+predichos_cmu  <- ifelse(predict(mod_fit_cmu) < 0.5 , yes = 0 ,no = 1)
+
+
+t_cmu_train <- table(predichos_cmu,y_datos_train_cmu)
+
+
+t_cmu_train 
+
+error_train_cmu <- round(( t_cmu_train[1,2] + t_cmu_train[2,1])/sum(t_cmu_train),2)
+
+print(c("La proporción de error de entrenamiento es : ", error_train_cmu))
+
+Y_predict <- predict(object = mod_fit_cmu ,newdata = datos_test_cmu[,c(1:36)])
+#Y_predict <- predict(object = mod_fit_cmu ,newdata = datos_test_cmu[,c(1:37)])
+#Y_predict <- predict(object = mod_fit_cmu ,newdata = datos_test_cmu[,c(1:36,38)])
+#Y_predict <- predict(object = mod_fit_cmu ,newdata = datos_test_cmu[,c(1:36,39)])
+#Y_predict <- predict(object = mod_fit_cmu ,newdata = datos_test_cmu[,c(1:39)])
+
+predichos_test <- ifelse( Y_predict < 0.5 , yes = 0 ,no = 1)
+
+
+t_im <- table(predichos_test,y_datos_test_cmu)
+
+t_im
+error_test_cmu <- round((t_im[1,2] + t_im[2,1])/sum(t_im),2)
+
+
+print(c("La proporción de error de prueba es : ", error_test_cmu))
+```
+
+## Modelo Logic con componentes principales y la variable Postura
+
+```{r, include=TRUE , echo=FALSE}
+#mod_fit_cmu <- glm(as.factor(Y) ~ . , data = datos_train_cmu[,c(1:36,40)] , family = "binomial")
+mod_fit_cmu <- glm(as.factor(Y) ~ . , data = datos_train_cmu[,c(1:37,40)] , family = "binomial") # postura
+#mod_fit_cmu <- glm(as.factor(Y) ~ . , data = datos_train_cmu[,c(1:36,38,40)] , family = "binomial") # tama
+#mod_fit_cmu <- glm(as.factor(Y) ~ . , data = datos_train_cmu[,c(1:36,39,40)] , family = "binomial")
+#mod_fit_cmu <- glm(as.factor(Y) ~ . , data = datos_train_cmu[,c(1:36,37,38,39,40)] , family = "binomial")
+
+
+predichos_cmu  <- ifelse(predict(mod_fit_cmu) < 0.5 , yes = 0 ,no = 1)
+
+
+t_cmu_train <- table(predichos_cmu,y_datos_train_cmu)
+
+
+t_cmu_train 
+
+error_train_cmu <- round(( t_cmu_train[1,2] + t_cmu_train[2,1])/sum(t_cmu_train),2)
+
+print(c("La proporción de error de entrenamiento es : ", error_train_cmu))
+
+#Y_predict <- predict(object = mod_fit_cmu ,newdata = datos_test_cmu[,c(1:36)])
+Y_predict <- predict(object = mod_fit_cmu ,newdata = datos_test_cmu[,c(1:37)])
+#Y_predict <- predict(object = mod_fit_cmu ,newdata = datos_test_cmu[,c(1:36,38)])
+#Y_predict <- predict(object = mod_fit_cmu ,newdata = datos_test_cmu[,c(1:36,39)])
+#Y_predict <- predict(object = mod_fit_cmu ,newdata = datos_test_cmu[,c(1:39)])
+
+predichos_test <- ifelse( Y_predict < 0.5 , yes = 0 ,no = 1)
+
+
+t_im <- table(predichos_test,y_datos_test_cmu)
+
+t_im
+error_test_cmu <- round((t_im[1,2] + t_im[2,1])/sum(t_im),2)
+
+
+print(c("La proporción de error de prueba es : ", error_test_cmu))
+```
+
+
+## Modelo Logic con componentes principales y la variable tamaño
+
+```{r, include=TRUE , echo=FALSE}
+#mod_fit_cmu <- glm(as.factor(Y) ~ . , data = datos_train_cmu[,c(1:36,40)] , family = "binomial")
+#mod_fit_cmu <- glm(as.factor(Y) ~ . , data = datos_train_cmu[,c(1:37,40)] , family = "binomial") # postura
+mod_fit_cmu <- glm(as.factor(Y) ~ . , data = datos_train_cmu[,c(1:36,38,40)] , family = "binomial") # tama
+#mod_fit_cmu <- glm(as.factor(Y) ~ . , data = datos_train_cmu[,c(1:36,39,40)] , family = "binomial")
+#mod_fit_cmu <- glm(as.factor(Y) ~ . , data = datos_train_cmu[,c(1:36,37,38,39,40)] , family = "binomial")
+
+
+predichos_cmu  <- ifelse(predict(mod_fit_cmu) < 0.5 , yes = 0 ,no = 1)
+
+
+t_cmu_train <- table(predichos_cmu,y_datos_train_cmu)
+
+
+t_cmu_train 
+
+error_train_cmu <- round(( t_cmu_train[1,2] + t_cmu_train[2,1])/sum(t_cmu_train),2)
+
+print(c("La proporción de error de entrenamiento es : ", error_train_cmu))
+
+#Y_predict <- predict(object = mod_fit_cmu ,newdata = datos_test_cmu[,c(1:36)])
+#Y_predict <- predict(object = mod_fit_cmu ,newdata = datos_test_cmu[,c(1:37)])
+Y_predict <- predict(object = mod_fit_cmu ,newdata = datos_test_cmu[,c(1:36,38)])
+#Y_predict <- predict(object = mod_fit_cmu ,newdata = datos_test_cmu[,c(1:36,39)])
+#Y_predict <- predict(object = mod_fit_cmu ,newdata = datos_test_cmu[,c(1:39)])
+
+predichos_test <- ifelse( Y_predict < 0.5 , yes = 0 ,no = 1)
+
+
+t_im <- table(predichos_test,y_datos_test_cmu)
+
+t_im
+error_test_cmu <- round((t_im[1,2] + t_im[2,1])/sum(t_im),2)
+
+
+print(c("La proporción de error de prueba es : ", error_test_cmu))
+```
+
+
+## Modelo Logic con componentes principales y la variable gestos
+
+```{r, include=TRUE , echo=FALSE}
+#mod_fit_cmu <- glm(as.factor(Y) ~ . , data = datos_train_cmu[,c(1:36,40)] , family = "binomial")
+#mod_fit_cmu <- glm(as.factor(Y) ~ . , data = datos_train_cmu[,c(1:37,40)] , family = "binomial") # postura
+#mod_fit_cmu <- glm(as.factor(Y) ~ . , data = datos_train_cmu[,c(1:36,38,40)] , family = "binomial") # tama
+mod_fit_cmu <- glm(as.factor(Y) ~ . , data = datos_train_cmu[,c(1:36,39,40)] , family = "binomial")
+#mod_fit_cmu <- glm(as.factor(Y) ~ . , data = datos_train_cmu[,c(1:36,37,38,39,40)] , family = "binomial")
+
+
+predichos_cmu  <- ifelse(predict(mod_fit_cmu) < 0.5 , yes = 0 ,no = 1)
+
+
+t_cmu_train <- table(predichos_cmu,y_datos_train_cmu)
+
+
+t_cmu_train 
+
+error_train_cmu <- round(( t_cmu_train[1,2] + t_cmu_train[2,1])/sum(t_cmu_train),2)
+
+print(c("La proporción de error de entrenamiento es : ", error_train_cmu))
+
+#Y_predict <- predict(object = mod_fit_cmu ,newdata = datos_test_cmu[,c(1:36)])
+#Y_predict <- predict(object = mod_fit_cmu ,newdata = datos_test_cmu[,c(1:37)])
+#Y_predict <- predict(object = mod_fit_cmu ,newdata = datos_test_cmu[,c(1:36,38)])
+Y_predict <- predict(object = mod_fit_cmu ,newdata = datos_test_cmu[,c(1:36,39)])
+#Y_predict <- predict(object = mod_fit_cmu ,newdata = datos_test_cmu[,c(1:39)])
+
+predichos_test <- ifelse( Y_predict < 0.5 , yes = 0 ,no = 1)
+
+
+t_im <- table(predichos_test,y_datos_test_cmu)
+
+t_im
+error_test_cmu <- round((t_im[1,2] + t_im[2,1])/sum(t_im),2)
+
+
+print(c("La proporción de error de prueba es : ", error_test_cmu))
+```
+
+## Concusión
+
+No parece haber un cambio muy drástico cuando se calcula la proporción de error para los datos de entrenamiento y de prueba, sinemabargo cuando se considera la variable **Postura** se obtiene una mejora de 2 puntos porcentuales en el error de entrenamiento y mantiene el error cuando se intenta clasificar los datos de prueba.
+
+Por lo tanto a la hora de escoger las imágenes que van a formar la base de imágenes **Entrenamiento (Train)** se tendrá en cuenta las postura (Si está mirando para arriba, centro, derecha o izquierda)
+
+
+
+# Datos Entrenamiento (Train)
+
+Las imágenes fueron recolectadas de un banco de imágenes o páginas web las cuales son:
+
+* https://sp.depositphotos.com/
+
+* https://stock.adobe.com/co/
+
+
+### Base de datos:
+se carga la base de datos y se visualiza. Adicionalmente se le agrega la variable  **Postura**.
+
+
+```{r message=FALSE, include=TRUE, echo=FALSE}
+library(imager)
+
+datos_imagen <- list.files(pattern= "*.png")
+
+m <- length(datos_CMU)
+
+x <- c(rep(0,m)) # Postura
+x <- ifelse(grepl("left", datos_imagen), yes = "left", no = datos_CMU)
+x <- ifelse(grepl("right", datos_imagen), yes = "right", no = x)
+x <- ifelse(grepl("front", datos_imagen), yes = "straight", no = x)
+x <- ifelse(grepl("up", datos_imagen), yes = "up", no = x)
+
+y <- c(rep("1",m)) #Gafas
+y <- ifelse(grepl("open", datos_imagen), yes = "0", no = y)
+
+
+Z <- data.frame(nombre = datos_imagen , postura = x, gafas_sol = y)
+head(Z)
+
+print(c("La cantidad de imágenes es: ",length(Z$postura)))
+
+
+```
+
+## Tamaño de la foto.
+
+Dado que las imágenes de la base **CMU Face Images Data Set** aportan muy buena información cuando están a $128 \times 120$ de tamaño, esa será la dimesión escogida para trabajar con las imágenes de la base de imágenes **Entrenamiento (Train)**.
+
+Se visualizan algunas imágenes de la base **CMU Face Images Data Set**.
+
+
+```{r, echo=TRUE, include=FALSE}
+## Función para leer todas las imágenes de una base de datos ##
+
+leer_y_trs_img<-function(img_name,path=NULL,x_l=120,y_l=128){
+  require(imager)
+  img_nombre<-paste0(path,img_name) # completa el nombre de la imagen con la ruta
+  imagen<-load.image(img_nombre) # carga la imagen
+  img_gris<-grayscale(imagen) # convierte la imagen a escala de grises
+  img_escalada<-resize(img_gris,x_l,y_l) # reescala la imagen
+  return(img_escalada)
+}
+```
+
+
+
+```{r , include=TRUE, echo=FALSE, warning=FALSE}
+lista_imagenes = lapply( datos_imagen , leer_y_trs_img,x_l = 128,y_l = 120) 
+```
+
+
+```{r, include=TRUE , echo=FALSE}
+
+par(mfrow=c(2,2))
+plot(lista_imagenes[[2]])
+plot(lista_imagenes[[16]])
+plot(lista_imagenes[[125]])
+plot(lista_imagenes[[203]])
+```
+
+Al parecer las imágenes al $128 \times 120$ aportan muy buena información sobre el comportamiento de los pixeles.
+
+
+## Componentes principales
+
+
+Ahora se vectorizan las imágenes. Es decir, que vista la imagen como una matriz, sus columnas se ponen una debajo de la otra hasta obtener un vector. Estos vectores luego serán las filas de una matriz de datos donde cada pixel representa una variable y cada imagen representa una observación. El resultado de hacer esto para todas las imágenes es una matriz que tiene tantas filas como imágenes y tantas columnas como pixeles tengan las imágenes. La función *as.numeric()* aplicada sobre cada imagen devuelve un vector. Se aplica entonces la función  *as.numeric()* sobre cada entrada del objeto *lista_imagenes* con la función *lapply()*.
+
+
+```{r  , include=TRUE , echo=FALSE}
+imagenes_vectorizadas <-lapply(lista_imagenes, as.numeric)
+#length(imagenes_vectorizadas[[1]]) # longitud del vector que representa la primera imagen
+#length(imagenes_vectorizadas) # cantidad de imágenes
+```
+
+Como resultado tenemos 15360 variables por cada imagen y en total se tiene 506 imágenes. Lo cual se vuelve una base de datos con ayuda de la fucnión *do.call()* y *data.frame()* 
+
+```{r, include=TRUE , echo=FALSE}
+matriz_imagenes = do.call('rbind', imagenes_vectorizadas)
+head(data.frame(matriz_imagenes)[,1:6])
+dim(matriz_imagenes) # dimensión de la matriz resultante
+```
+
+
+
+### Máscara
+
+Se contruye una máscara para saber cual es el espacio de la imagen que tienen más variabilidad, pues estos son los espacios de interés, además, elimina espacios de la imagen que no aportan mucho información y por lo tanto se consideran menos variables.
+
+```{r, include=TRUE, echo=FALSE}
+imagen_sd_vec<-apply(matriz_imagenes,2,sd)
+imagen_sd <-as.cimg(array(imagen_sd_vec,dim=c(128,120)))
+```
+
+Se usa la función truehist de R para observar cual es el punto de corte entre los espacios de más variabilidad y los que no.
+
+```{r, include=TRUE, echo=FALSE}
+MASS::truehist(imagen_sd)
+```
+
+EL punto de corte es de **0.27**, ahora con este valor y la función *threshol()* se puede visualizar como será la máscara 
+
+
+```{r, include=TRUE, echo=FALSE}
+imagen_sd_tr<-threshold(imagen_sd,thr = 0.27)
+plot(imagen_sd_tr)
+```
+En la máscara se puede ver la forma de una persona considerada desde los hombros hasta la cabeza, la parte blanca es el lugar donde se genera mayor variabilidad y son los puntos de la imagen que serán considerados de ahora en adelante.
+
+Adicionalmente la parte de los ojos parece ser una zona de mucha variabilidad, pues esto es debido a las imágenes de personas que utilizan o no gafas de sol.
+
+
+```{r, include=TRUE, echo=FALSE}
+table(imagen_sd_tr)
+
+table(imagen_sd_tr)[1]/sum(table(imagen_sd_tr))*100
+```
+El porcentaje de información de la imagen que fue descartado es de 31.3% (31%) 
+
+Esto quiere decir que aproximadamente el 31% de los datos están en zonas de baja variabilidad. Ahora identificamos los pixeles por fuera de las zonas de baja variabilidad usando la función *which()* y almacenamos la ubicación de estos pixeles en el objeto *mascara*:
+
+```{r, include=FALSE, echo=TRUE}
+mascara<-which(imagen_sd_tr==1)
+```
+
+Ahora se extraen los datos correspondientes a los pixeles por fuera de la zona de baja variabilidad usando el objeto *mascara* para identificar las columnas relevantes en la matriz. El resultado se almacena en un dataframe.
+
+```{r, include=TRUE, echo=FALSE}
+datos_con_mascara<-matriz_imagenes[,mascara_cmu]
+dim(datos_con_mascara)
+```
+Ahora la matriz de datos cuando se le aplica el filtro de la máscara tiene 506 filas correspondientes a la imágenes y 5340 variables.
+
+
+# Análisis de componentes principales
+
+A continuación se procederá a hacer una análisis de componentes principales sobre las imágenes del conjunto de datos de entrenamiento. El primer paso será centrar y escalar la matriz de datos con la función *scale()*. Esto quiere decir que a cada columna se le resta su media y se divide por su desviación estándar.
+
+
+```{r}
+datos_mascara_centrados<-scale(datos_con_mascara,center = TRUE,scale = TRUE)
+dim(datos_mascara_centrados)
+```
+La matriz de datos tiene muchas más variables (5340) que observaciones (506). Esto hace que no se pueda usar la función *princomp()* para hacer el análisis de componentes principales. En su lugar se usa la función *prcomp()*
+
+## Número de componentes principales
+
+El número de componentes principales que se tomarán es la cantidad de variables que logren explicar el 90% de la información.
+
+```{r, echo=FALSE, include=TRUE}
+modelo_pca<-prcomp(datos_mascara_centrados)
+x2 <- summary(modelo_pca)
+```
+
+
+```{r, include=TRUE, echo=FALSE}
+a2 <- 0
+for (j in c(1:length(x2$importance))) {
+  b2 <- as.numeric(x2$importance[j])
+  if (x2$importance[3*j] < 1) {
+    a2 <- x2$importance[3*j]
+  }
+  if (a2 > 0.90) {
+    break
+  }
+}
+
+print(c("El acomulado es :",a2," Y el índice es :",j))
+
+```
+
+Según este resultado el número de componentes principales que explica el 90% de la varianza es de 88, por lo tanto este será el número óptimo de componentes principales que se utilizará para construir el Modelo Logic con los datos de **Entrenamiento (Train)** e intentar clasificar las imágenes de la base de imágenes **CMU Face Images Data Set**.
+
+```{r, include=TRUE, echo=FALSE}
+eigen_modes_prin<-modelo_pca$rotation[,1:88]
+dim(eigen_modes_prin)
+```
+
+## Modelo de Regresión Logic con los datos Entrenamiento (Train)
+
+El propósito principal de este trabajo es el de crear un modelo de regresión logistica teniendo en cuenta las componentes principales de las imágenes de la base de imágenes  **Entrenamiento (Train)** para intentar clasificar las imágenes de la base de imágenes **CMU Face Images Data. Set**
+
+
+### Base de datos con componentes pirncipales y variables postura y gafas_sol (Y).
+
+```{r, include=TRUE, echo=FALSE}
+
+datos_red_train <-datos_mascara_centrados%*%eigen_modes_prin
+#dim(datos_red_train)
+datos_train <- data.frame(datos_red_train)
+
+postura <- Z$postura
+y_datos_train <- Z$gafas_sol
+
+
+
+datos_train$postura <- postura
+datos_train$Y <- y_datos_train
+#dim(datos_train)
+
+head(datos_train[,85:90])
+
+```
+
+Ahora se crea un  modelo de regresión logistica con la función *glm()* para el conjunto **Entrenamiento (Train)** y se calcula la proporción de error del conjunto de entrenamiento.
+
+```{r, include=TRUE , echo=FALSE}
+
+mod_fit <- glm(as.factor(Y) ~ . , data = datos_train , family = "binomial")
+
+
+datos_predichos <- ifelse(predict(mod_fit) < 0.5 , yes = 0 ,no = 1)
+
+
+table(datos_predichos,y_datos_train)
+
+
+t_train  <- table(datos_predichos,y_datos_train)
+
+error_train <- (t_train[1,2] + t_train[2,1])/sum(t_train)
+
+print(c("La proporción de error para el conjunto de entrenamiento es de: ",round(error_train,2)))
+
+```
+
+Una proporción de error del 25% no es el mejor resultado pero no está tan mal considerando la dificultas que puede representar clasificar imágenes.
+
+
+Ahora con este modelo se intentará clasificar las imágenes de la base **CMU Face Images Data Set**
+
+
+```{r, include=TRUE , echo=FALSE , warning=FALSE}
+lista_imagenes_test = lapply( datos_CMU , leer_y_trs_img,x_l = 128,y_l = 120) 
+#length(lista_imagenes_test)
+
+
+imagenes_vectorizadas_test<-lapply(lista_imagenes_test, as.numeric)
+#length(imagenes_vectorizadas_test[[1]]) # longitud del vector que representa la primera imagen
+#length(imagenes_vectorizadas_test) # cantidad de imágenes
+
+
+
+matriz_imagenes_test = do.call('rbind', imagenes_vectorizadas_test)
+#dim(matriz_imagenes_test) # dimensión de la matriz resultante
+
+imagen_sd_vec_test<-apply(matriz_imagenes_test,2,sd)
+imagen_sd_test<-as.cimg(array(imagen_sd_vec_test,dim=c(128,120)))
+
+
+
+imagen_sd_tr_test<-threshold(imagen_sd_test,thr = 0.10)
+
+
+datos_con_mascara_test<-matriz_imagenes_test[,mascara]
+
+
+datos_mascara_centrados_test<-scale(datos_con_mascara_test,center = TRUE,scale = TRUE)
+
+
+
+modelo_pca_test <- prcomp(datos_mascara_centrados_test)
+
+eigen_modes_prin_test<-modelo_pca_test$rotation[,1:88]
+
+
+datos_red_test <-datos_mascara_centrados_test%*%eigen_modes_prin_test
+
+```
+
+
+```{r, include=TRUE , echo=FALSE}
+datos_test <- data.frame(datos_red_test)
+
+posicion <- W$postura
+
+y_datos_test <- W$gafas_sol
+
+
+datos_test$postura <- posicion
+
+datos_test$Y <- y_datos_test
+
+head(datos_test[,85:90])
+
+```
+
+
+
+```{r, include=TRUE, echo=FALSE}
+
+Y_predict_test <- predict(object = mod_fit ,newdata = datos_test[,1:89])
+
+predichos_test <- ifelse( Y_predict_test < 0.1 , yes = 0 ,no = 1)
+
+
+t_im <- table(predichos_test,y_datos_test)
+
+t_im
+
+error_test <- ( t_im[1,2] + t_im[2,1])/sum(t_im)
+
+
+print(c("La proporción de error para el conjunto de prueba es de: ",round(error_test,2)))
+
+```
+
+## Resultados
+
+La proporción de error de clasificación para las imágenes de la base **CMU Face Images Data Set** es de 0.52. Lo que quiere decir que sólo clasifica bien la mitad de las imágenes, un "Cara y sello", por lo tanto no es un buen calificador.
+
+## Conclusiones.
+
+El modelo logic tuvo un buen funcionamiento para clasificar las imágenes de una misma base de imágenes, pero entre la base de imágenes no fue tan bueno, depronto las imágenes no son tan homogeneas y eso pudo haber generado un sesgo muy grande a la hora de optener información con las componentes principales.
+
+
+
+# Responda las siguientes preguntas:
+
+## 1) ¿Qué afecta la capacidad del modelo en el conjunto de validación?
+
+La diferencia entre imágenes con el conjunto de datos de entrenamiento es la principal causa de afectación, pues no parecen ser imágenes tan homogeneas y por lo tanto la información que aportan es bastante diferente. 
+
+
+## 2) ¿Hay alguna característica de las imágenes que mejore la capacidad de respuesta?
+
+Cuando se analizo la base de datos **CMU Face Images Data Set** se vio que la variable posición de la cabeza ayudaba a clasificar mejor las imágenes de personas que tenían o no gafas de sol, pues la posición del negro de las gafas en la imágen variaba según la posición de la cabeza.
+
+
+## Bibliografia
+
+* Ospina,J.(2022),Aplicación del análisis de componentes principales a las imágenes.file:///C:/Users/user/Desktop/TAE/Componentes%20principales/imagenes/intro_acp_imagenes.html
+
+
+
+
